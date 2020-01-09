@@ -46,8 +46,11 @@ class ResultSizeDiff(Result):
     def __init__(self, detail = None):
         super(ResultSizeDiff, self).__init__(detail)
 class ResultHashDiff(Result):
-        def __init__(self, detail = None):
-            super(ResultHashDiff, self).__init__(detail)
+    def __init__(self, detail = None):
+        super(ResultHashDiff, self).__init__(detail)
+class ResultHashSkip(Result):
+    def __init__(self, detail = None):
+        super(ResultHashSkip, self).__init__(detail)
 
 
 class Comparison(object):
@@ -96,7 +99,7 @@ class HashDiff(Comparison):
             if size > 5242880*10:
                 msg = "skip md5 for tarball g.t. 50MB"
                 log.debug('{}: {}'.format(self.path + self.file, msg))
-                return ResultMatch()
+                return ResultHashSkip(msg)
 
         httplocal = self.tmp + self.file + '.http'
         svnlocal = self.tmp + self.file + '.svn'

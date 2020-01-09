@@ -24,7 +24,7 @@
 
 # The pypi 'svn' package is causing lint errors that I don't care to investigate.
 import svn.remote # pylint: disable=import-error,no-name-in-module
-import logging
+import logging, os
 
 log = logging.getLogger('buildsourcesCompare')
 
@@ -49,7 +49,8 @@ class Svn:
         # Can't use the self.c client because path is fixed
         log.debug('{}: export to {}'.format(self.repo + self.path + file, outputFile))
         c = svn.remote.RemoteClient(self.repo + self.path + file) # pylint: disable=no-member
-        c.export(outputFile)
+        c.export(outputFile + '.svn-tmp')
+        os.rename(outputFile + '.svn-tmp', outputFile)
 
     def list(self, p = ''):
         if p is '':

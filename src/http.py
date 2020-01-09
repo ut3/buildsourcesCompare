@@ -23,7 +23,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import urllib.request as request
-import logging
+import logging, os
 
 log = logging.getLogger('buildsourcesCompare')
 sizecache = {}
@@ -56,7 +56,8 @@ class Http(object):
     def download(self, outputFile, file):
         url = self.baseurl + file
         log.debug("{}: export to {}".format(url, outputFile))
-        request.urlretrieve(url, outputFile)
+        request.urlretrieve(url, outputFile + '.http-tmp')
+        os.rename(outputFile + '.http-tmp', outputFile)
 
     def size(self, path, file):
         url = self.baseurl + path + file
