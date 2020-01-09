@@ -56,7 +56,7 @@ def download(http, svn, tmp, path, file):
     localsvn = tmp + path + file + '.svn'
     localhttp = tmp + path + file + '.http'
     if not os.path.exists(tmp + path):
-        os.makedirs(tmp + path)
+        os.makedirs(tmp.path)
     if not os.path.exists(localsvn):
         svn.download(localsvn, path + file)
     if not os.path.exists(localhttp):
