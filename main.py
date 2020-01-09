@@ -52,6 +52,16 @@ class ResultHashSkip(Result):
     def __init__(self, detail = None):
         super(ResultHashSkip, self).__init__(detail)
 
+def download(http, svn, tmp, path, file):
+    localsvn = tmp + path + file + '.svn'
+    localhttp = tmp + path + file + '.http'
+    if not os.path.exists(tmp + path):
+        os.makedirs(tmp + path)
+    if not os.path.exists(localsvn):
+        svn.download(localsvn, path + file)
+    if not os.path.exists(localhttp):
+        http.download(localhttp, path + file)
+    return (localhttp, localsvn)
 
 class Comparison(object):
     def __init__(self, http, svn, tmp, path, file):
@@ -82,6 +92,7 @@ class SizeDiff(Comparison):
         log.debug('{}: {}'.format(self.path + self.file, msg))
         if svnsz == htsz:
             return ResultMatch()
+        download (self.http, self.svn, self.tmp, self.path, self.file)
         return ResultSizeDiff(msg)
 
 class HashDiff(Comparison):
@@ -94,10 +105,10 @@ class HashDiff(Comparison):
                 for chunk in iter(lambda: f.read(4096), b""):
                     md5.update(chunk)
             return md5.hexdigest()
-        if -1 != self.file.find('tar'):
-            size = self.http.size(self.path, self.file)
-            if size > 5242880*10:
-                msg = "skip md5 for tarball g.t. 50MB"
+        skip = [ 'tar', 'xz', 'tgz', 'gz', 'zip', 'bz2' ]
+        for c in skip:
+            if -1 != self.file.find('bad'):
+                msg = "skip md5 for tarball {}".format(c)
                 log.debug('{}: {}'.format(self.path + self.file, msg))
                 return ResultHashSkip(msg)
 
@@ -107,12 +118,9 @@ class HashDiff(Comparison):
             raise Exception
         if os.path.exists(svnlocal):
             raise Exception
-        self.svn.download(svnlocal, self.path + self.file)
-        self.http.download(httplocal, self.path + self.file)
+        (httplocal, svnlocal) = download(self.http, self.svn, self.tmp, self.path, self.file)
         svnmd5 = md5(svnlocal)
         htmd5 = md5(httplocal)
-        os.remove(svnlocal)
-        os.remove(httplocal)
         msg = 'httpmd5={}, svnmd5={}'.format(htmd5, svnmd5)
         log.debug('{}: {}'.format(self.path + self.file, msg))
         if htmd5 == svnmd5:
