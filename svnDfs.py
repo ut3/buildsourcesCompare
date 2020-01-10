@@ -29,7 +29,7 @@
 from src.http import Http
 from src.svn import Svn
 from src.workorder import WorkorderFilter
-import hashlib, os, argparse, logging, shutil
+import hashlib, os, argparse, logging, shutil, sys
 from enum import Enum
 
 log = logging.getLogger('buildsourcesCompare')
@@ -128,19 +128,18 @@ class HashDiff(Comparison):
             return ResultMatch()
         return ResultHashDiff(msg)
 
-def postResult(outfile, result, path, file):
+def postResult(reportfile, result, path, file):
     l = log.critical
     if isinstance(result, ResultMatch):
         l = log.info
-        outfile = None
+        reportfile = None
     msg = '{}: {}'.format(type(result).__name__, path + file)
     if None != result.detail:
         msg += ': {}'.format(result.detail)
     l(msg)
-    if None != outfile:
-        outfile.write(msg + '\n')
-        outfile.flush()
-
+    if None != reportfile:
+        reportfile.write(msg + '\n')
+        reportfile.flush()
 
 def dfs(http, svn, tmp, reportfile, path):
     log.warning("exploring {}".format(path))
@@ -158,10 +157,9 @@ def dfs(http, svn, tmp, reportfile, path):
         else:
             dfs(http, svn, tmp, reportfile, pathToK + '/')
 
-
 def main():
     parser = argparse.ArgumentParser(
-        description = 'Aggregate all in-use packages across workorders. For each such package, ensure that buildsources contains no proprietary modifications to tarballs, patches, etc. Identify exceptions.'
+        description = 'Compare an SVN tree with a nearly equivalent HTTP tree to identify changed files.',
         )
     parser.add_argument('-s', '--svnrepo',
         help='The SVN repository to use as source (default: %(default)s)',
@@ -170,41 +168,57 @@ def main():
         help="The relative path in the SVN repository to use for fetching workorders (default: %(default)s)",
         default='/projects/integration/platform/OS/factory/src/local/config/')
     parser.add_argument('-r', '--svnrelpath',
-        help="The relative path in the SVN repository to use for buildsources source (default: %(default)s)",
+        help="The relative path in the SVN repository to use as source (default: %(default)s)",
         default='/projects/integration/platform/buildsources/')
     parser.add_argument('-t', '--httprepo',
         help='The HTTP repository & relative path to use as comparison target (default: %(default)s)',
         default='http://repository.timesys.com/buildsources/')
-    parser.add_argument('-o', '--outfile',
+    parser.add_argument('-o', '--reportfile',
         help='A full path to a file to write a report to (default=%(default)s)',
         default='/tmp/buildsourcesCompare-report')
+    parser.add_argument('-l', '--logfile',
+        help='A full path to a file to write a log at DEBUG to (default=%(default)s)',
+        default='/tmp/buildsourcesCompare-log')
     parser.add_argument("-v", "--verbosity",
         choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
-        help="Debug verbosity level (default: %(default)s)",
+        help="Console verbosity level (default: %(default)s)",
         default='ERROR')
     parser.add_argument('-p', '--tmppath',
         help='The temporary path to use for operations (default: %(default)s)',
         default='/tmp/buildsourcesCompare/')
 
+    formatter = logging.Formatter(fmt='%(asctime)s %(module)s,line: %(lineno)d %(levelname)8s | %(message)s',
+            datefmt='%Y/%m/%d %H:%M:%S') # %I:%M:%S %p AM|PM format
     args = parser.parse_args()
-    logging.basicConfig(level=logging.WARNING)
-    log.setLevel(level=logging.getLevelName(args.verbosity))
-    svn = Svn(repo=args.svnrepo,
-            path=args.svnrelpath)
-    woSvn = Svn(repo=args.svnrepo, path=args.configpath)
-    http = Http(baseurl=args.httprepo)
+
+    reportfile = args.reportfile
+    logfile = args.logfile
+    count = 0
+    while os.path.exists(reportfile) or os.path.exists(logfile):
+        count = count + 1
+        reportfile = args.reportfile + '.' + str(count)
+        logfile = args.logfile + '.' + str*(count)
+    reportfile = open(reportfile, "w+")
 
     if os.path.exists(args.tmppath):
         shutil.rmtree(args.tmppath)
     os.mkdir(args.tmppath)
 
-    outfile = args.outfile
-    count = 0
-    while os.path.exists(outfile):
-        count = count + 1
-        outfile = args.outfile + '.' + str(count)
-    log.info("Creating report at {}".format(outfile))
-    outfile = open(outfile, "w+")
+    log.setLevel(logging.DEBUG)
+    fh = logging.FileHandler(logfile)
+    fh.setLevel(logging.DEBUG)
+    fh.setFormatter(formatter)
+
+    ch = logging.StreamHandler(stream=sys.stdout)
+    ch.setLevel(logging.getLevelName(args.verbosity))
+    ch.setFormatter(fh)
+
+    log.info("Creating report at {}".format(reportfile))
+    log.info("Creating log at {}".format(log))
+
+    svn = Svn(repo=args.svnrepo,
+            path=args.svnrelpath)
+    http = Http(baseurl=args.httprepo)
 
     woFilter = WorkorderFilter(args.tmppath, woSvn)
     for v in woFilter.pkgs():
