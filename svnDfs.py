@@ -197,7 +197,7 @@ def main():
     while os.path.exists(reportfile) or os.path.exists(logfile):
         count = count + 1
         reportfile = args.reportfile + '.' + str(count)
-        logfile = args.logfile + '.' + str*(count)
+        logfile = args.logfile + '.' + str(count)
     reportfile = open(reportfile, "w+")
 
     if os.path.exists(args.tmppath):

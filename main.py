@@ -29,7 +29,7 @@
 from src.http import Http
 from src.svn import Svn
 from src.workorder import WorkorderFilter
-import hashlib, os, argparse, logging, shutil
+import hashlib, os, argparse, logging, shutil, sys
 from enum import Enum
 
 log = logging.getLogger('buildsourcesCompare')
@@ -108,7 +108,7 @@ class HashDiff(Comparison):
             return md5.hexdigest()
         skip = [ 'tar', 'xz', 'tgz', 'gz', 'zip', 'bz2' ]
         for c in skip:
-            if -1 != self.file.find('bad'):
+            if -1 != self.file.find(c):
                 msg = "skip md5 for tarball {}".format(c)
                 log.debug('{}: {}'.format(self.path + self.file, msg))
                 return ResultHashSkip(msg)
@@ -128,19 +128,18 @@ class HashDiff(Comparison):
             return ResultMatch()
         return ResultHashDiff(msg)
 
-def postResult(outfile, result, path, file):
+def postResult(reportfile, result, path, file):
     l = log.critical
-    if isinstance(result, ResultMatch):
+    if isinstance(result, ResultMatch) or isinstance(result, ResultHashSkip):
         l = log.info
-        outfile = None
+        reportfile = None
     msg = '{}: {}'.format(type(result).__name__, path + file)
     if None != result.detail:
         msg += ': {}'.format(result.detail)
     l(msg)
-    if None != outfile:
-        outfile.write(msg + '\n')
-        outfile.flush()
-
+    if None != reportfile:
+        reportfile.write(msg + '\n')
+        reportfile.flush()
 
 def dfs(http, svn, tmp, reportfile, path):
     log.warning("exploring {}".format(path))
@@ -152,12 +151,11 @@ def dfs(http, svn, tmp, reportfile, path):
             result = None
             for c in comparators:
                 result = c(http, svn, tmp, path, k)()
-                if not isinstance(result, ResultMatch):
+                if not isinstance(result, ResultMatch) and not isinstance(result, ResultHashSkip):
                     break
             postResult(reportfile, result, path, k)
         else:
             dfs(http, svn, tmp, reportfile, pathToK + '/')
-
 
 def main():
     parser = argparse.ArgumentParser(
@@ -175,36 +173,54 @@ def main():
     parser.add_argument('-t', '--httprepo',
         help='The HTTP repository & relative path to use as comparison target (default: %(default)s)',
         default='http://repository.timesys.com/buildsources/')
-    parser.add_argument('-o', '--outfile',
+    parser.add_argument('-o', '--reportfile',
         help='A full path to a file to write a report to (default=%(default)s)',
         default='/tmp/buildsourcesCompare-report')
+    parser.add_argument('-l', '--logfile',
+        help='A full path to a file to write a log at DEBUG to (default=%(default)s)',
+        default='/tmp/buildsourcesCompare-log')
     parser.add_argument("-v", "--verbosity",
         choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
-        help="Debug verbosity level (default: %(default)s)",
+        help="Console verbosity level (default: %(default)s)",
         default='ERROR')
     parser.add_argument('-p', '--tmppath',
         help='The temporary path to use for operations (default: %(default)s)',
         default='/tmp/buildsourcesCompare/')
 
+    formatter = logging.Formatter(fmt='%(asctime)s %(module)s,line: %(lineno)d %(levelname)8s | %(message)s',
+            datefmt='%Y/%m/%d %H:%M:%S') # %I:%M:%S %p AM|PM format
     args = parser.parse_args()
-    logging.basicConfig(level=logging.WARNING)
-    log.setLevel(level=logging.getLevelName(args.verbosity))
-    svn = Svn(repo=args.svnrepo,
-            path=args.svnrelpath)
-    woSvn = Svn(repo=args.svnrepo, path=args.configpath)
-    http = Http(baseurl=args.httprepo)
+
+    reportfile = args.reportfile
+    logfile = args.logfile
+    count = 0
+    while os.path.exists(reportfile) or os.path.exists(logfile):
+        count = count + 1
+        reportfile = args.reportfile + '.' + str(count)
+        logfile = args.logfile + '.' + str(count)
+    report = open(reportfile, "w+")
 
     if os.path.exists(args.tmppath):
         shutil.rmtree(args.tmppath)
     os.mkdir(args.tmppath)
 
-    outfile = args.outfile
-    count = 0
-    while os.path.exists(outfile):
-        count = count + 1
-        outfile = args.outfile + '.' + str(count)
-    log.info("Creating report at {}".format(outfile))
-    outfile = open(outfile, "w+")
+    log.setLevel(logging.DEBUG)
+
+    fh = logging.FileHandler(logfile)
+    fh.setFormatter(formatter)
+    log.addHandler(fh)
+
+    ch = logging.StreamHandler(stream=sys.stdout)
+    ch.setLevel(logging.getLevelName(args.verbosity))
+    ch.setFormatter(formatter)
+    log.addHandler(ch)
+
+    log.info("Creating report at {}".format(reportfile))
+    log.info("Creating log at {}".format(logfile))
+
+    svn = Svn(repo=args.svnrepo, path=args.svnrelpath)
+    woSvn = Svn(repo=args.svnrepo, path=args.configpath)
+    http = Http(baseurl=args.httprepo)
 
     woFilter = WorkorderFilter(args.tmppath, woSvn)
     for v in woFilter.pkgs():
@@ -212,8 +228,8 @@ def main():
             http=http,
             svn=svn,
             tmp = args.tmppath,
-            reportfile=outfile,
-            path=v.strip())
+            reportfile=report,
+            path=v + '/')
 
 
 if __name__ == "__main__":
